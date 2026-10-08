@@ -1,0 +1,78 @@
+name: Selenium Tests
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull Selenoid browser images
+        run: |
+          docker pull selenoid/chrome:128.0
+
+      - name: Start Selenoid
+        run: |
+          docker compose up -d selenoid
+          for i in {1..30}; do
+            if curl -s http://selenoid:4444/status | grep -q '"ready":true'; then
+              echo "Selenoid готов"
+              break
+            fi
+            echo "Ожидание Selenoid... ($i)"
+            sleep 2
+          done
+
+      - name: Build test image
+        run: docker compose build tests
+
+      - name: Run tests
+        id: run_tests
+        continue-on-error: true
+        run: |
+          docker compose run --rm --name tests-run tests || true
+
+      - name: Copy allure-results from container
+        if: always()
+        run: |
+          docker cp tests-run:/app/allure-results ./allure-results || true
+
+      - name: Remove test container
+        if: always()
+        run: docker rm -f tests-run || true
+
+      - name: Upload allure-results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results/
+          if-no-files-found: ignore
+
+      - name: Upload pytest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: reports/
+          if-no-files-found: ignore
+
+      - name: Dump Selenoid logs on failure
+        if: failure()
+        run: docker compose logs selenoid
+
+      - name: Fail job if tests failed
+        if: steps.run_tests.outcome == 'failure'
+        run: exit 1
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v

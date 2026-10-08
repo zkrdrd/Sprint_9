@@ -1,0 +1,45 @@
+services:
+  selenoid:
+    image: aerokube/selenoid:latest
+    container_name: selenoid
+    restart: unless-stopped
+    environment:
+      - DOCKER_API_VERSION=1.44
+    ports:
+      - "4444:4444"
+    volumes:
+      - ./config:/etc/selenoid:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - "-conf"
+      - "/etc/selenoid/browsers.json"
+      - "-limit"
+      - "10"
+      - "-container-network"
+      - "sprint_9_test-network"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "4444"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - test-network
+
+  tests:
+    build: .
+    container_name: tests
+    environment:
+      - SELENOID_HOST=selenoid
+      - SELENOID_PORT=4444
+    volumes:
+      - ./allure-results:/app/allure-results
+    depends_on:
+      selenoid:
+        condition: service_healthy
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge
